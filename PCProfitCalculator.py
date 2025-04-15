@@ -2,13 +2,17 @@ import streamlit as st
 import json
 import pandas as pd
 
-def compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, vat, extra_cost=0):
+# Hardcode VAT as 20%
+VAT_VALUE = 20
+
+def compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, extra_cost=0):
     """
     Calculate the profit percentage using the provided logic:
+    
     1. SellPriceMinusFee = sell_price * (1 - (platform_fee/100))
     2. SellPriceVAT = (sell_price / 120) * 20
-    3. PostCostVAT = post_cost * (vat/100)
-    4. CostPriceVAT = cost_price * (vat/100)
+    3. PostCostVAT = post_cost * (VAT/100)     [VAT is 20%]
+    4. CostPriceVAT = cost_price * (VAT/100)
     5. TotalVATPaid = PostCostVAT + CostPriceVAT
     6. IncomeAfterFees = SellPriceMinusFee - post_cost
     7. ExtraVATDue = SellPriceVAT - TotalVATPaid
@@ -17,8 +21,8 @@ def compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, v
     """
     sell_price_minus_fee = sell_price * (1 - (platform_fee / 100))
     sell_price_vat = (sell_price / 120) * 20
-    post_cost_vat = post_cost * (vat / 100)
-    cost_price_vat = cost_price * (vat / 100)
+    post_cost_vat = post_cost * (VAT_VALUE / 100)
+    cost_price_vat = cost_price * (VAT_VALUE / 100)
     total_vat_paid = post_cost_vat + cost_price_vat
     income_after_fees = sell_price_minus_fee - post_cost
     extra_vat_due = sell_price_vat - total_vat_paid
@@ -26,20 +30,21 @@ def compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, v
     profit_percentage = profit / sell_price
     return profit_percentage
 
-def find_selling_price(cost_price, post_cost, platform_fee, vat, target_profit_pct, extra_cost=0):
+def find_selling_price(cost_price, post_cost, platform_fee, target_profit_pct, extra_cost=0):
     """
     Iteratively determine the selling price so that the computed profit percentage
     equals the target profit percentage.
-    target_profit_pct is provided as a percentage (e.g., 16) and is compared as a decimal (0.16).
+    
+    target_profit_pct is provided as a percentage (e.g., 16) and compared as a decimal (0.16).
     """
     target_profit_decimal = target_profit_pct / 100.0
-    initial_sell_price = (cost_price + post_cost + extra_cost) * (1 + (platform_fee / 100) + (vat / 100) + (target_profit_pct / 100))
+    initial_sell_price = (cost_price + post_cost + extra_cost) * (1 + (platform_fee / 100) + (VAT_VALUE / 100) + (target_profit_pct / 100))
     sell_price = initial_sell_price
     tolerance = 0.0001
     max_iterations = 10000
 
     for i in range(max_iterations):
-        current_profit_pct = compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, vat, extra_cost)
+        current_profit_pct = compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, extra_cost)
         diff = current_profit_pct - target_profit_decimal
         if abs(diff) < tolerance:
             break
@@ -47,11 +52,12 @@ def find_selling_price(cost_price, post_cost, platform_fee, vat, target_profit_p
             sell_price += 0.01
         else:
             sell_price -= 0.01
-    return sell_price, compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, vat, extra_cost)
+    return sell_price, compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, extra_cost)
 
 def load_config(config_file="config.json"):
     """
     Loads a JSON configuration file that contains both platform settings and postage options.
+    
     Expected JSON format:
     {
       "platforms": {
@@ -103,7 +109,8 @@ When calculating for multiples, you can assign a postage choice for each quantit
 
 # Common input parameters
 cost_price = st.number_input("Enter the Cost Price (£):", min_value=0.0, value=8.92, step=0.01)
-vat = st.number_input("Enter the VAT (%):", min_value=0.0, value=20.0, step=0.1)
+
+# VAT is now hardcoded as 20% (not user input)
 
 # Load configuration
 platforms, postage_options = load_config()
@@ -139,15 +146,15 @@ if platforms:
             fee = params.get("fee", 0)
             target_profit_pct_platform = params.get("target_profit_pct", 0)
             extra_cost = params.get("extra_cost", 0)
-            unit_sell_price, unit_profit = find_selling_price(cost_price, single_post_cost, fee, vat, target_profit_pct_platform, extra_cost)
+            unit_sell_price, unit_profit = find_selling_price(cost_price, single_post_cost, fee, target_profit_pct_platform, extra_cost)
             # Format each line with centered, larger text and bold values.
             results_output += f"""<div style="text-align:center; font-size:24px;">
 <strong>{platform_name}:</strong> Selling Price = <strong>£{unit_sell_price:.2f}</strong>, Profit = <strong>{unit_profit:.2%}</strong>
 </div><br>"""
-        # Display the results at the top using unsafe_allow_html
+        # Display the results at the top using unsafe_allow_html.
         result_container.markdown(results_output, unsafe_allow_html=True)
     else:
-        # Multiple mode: build a results table for each quantity option.
+        # Multiple mode: build and display a results table for each platform.
         for platform_name, params in platforms.items():
             fee = params.get("fee", 0)
             target_profit_pct_platform = params.get("target_profit_pct", 0)
@@ -155,11 +162,12 @@ if platforms:
             st.markdown(f"**{platform_name}:**")
             multiple_results = []
             # Also compute baseline single-item unit price for discount calculation.
-            unit_sell_price, _ = find_selling_price(cost_price, single_post_cost, fee, vat, target_profit_pct_platform, extra_cost)
+            unit_sell_price, _ = find_selling_price(cost_price, single_post_cost, fee, target_profit_pct_platform, extra_cost)
             for q in range(1, int(max_quantity) + 1):
                 total_cost = cost_price * q
+                # For each quantity, use the postage option selected for that quantity.
                 post_cost_q = postage_by_quantity.get(q, single_post_cost)
-                sell_price_q, profit_q = find_selling_price(total_cost, post_cost_q, fee, vat, target_profit_pct_platform, extra_cost)
+                sell_price_q, profit_q = find_selling_price(total_cost, post_cost_q, fee, target_profit_pct_platform, extra_cost)
                 baseline_total = unit_sell_price * q
                 discount_amount = baseline_total - sell_price_q
                 discount_pct = (discount_amount / baseline_total * 100) if baseline_total > 0 else 0
@@ -172,7 +180,7 @@ if platforms:
                     "Discount %": f"{discount_pct:.2f}%"
                 })
             df_results = pd.DataFrame(multiple_results)
-            # Wrap the table HTML in a div to center it and use larger text.
+            # Convert to HTML table without indices, and wrap it in a centered div with larger text.
             table_html = f'<div style="text-align:center; font-size:18px;">{df_results.to_html(index=False)}</div>'
             st.markdown(table_html, unsafe_allow_html=True)
 else:
