@@ -1,0 +1,26 @@
+{
+    "platforms": {
+        "Amazon UK": {
+            "fee": 15,
+            "target_profit_pct": 16,
+            "extra_cost": 0
+        },
+        "Ebay UK": {
+            "fee": 12.9,
+            "target_profit_pct": 18,
+            "extra_cost": 0.30
+        }
+    },
+    "postage_options": {
+        "Large Letter untracked": 1.37,
+        "Parcel 48 Tracked": 3.47,
+        "DPD GB": 8.07,
+        "DPD NI": 5.05,
+        "DPD IE": 5.77,
+        "Evri 0-2kg": 5.33,
+        "Evri 2-5kg": 5.98,
+        "Evri 2 - 15kg": 6.09
+    }
+}
+  
+  
