@@ -7,17 +7,16 @@ VAT_VALUE = 20
 
 def compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, extra_cost=0):
     """
-    Calculate the profit percentage using the provided logic:
-    
-    1. SellPriceMinusFee = sell_price * (1 - (platform_fee/100))
-    2. SellPriceVAT = (sell_price / 120) * 20
-    3. PostCostVAT = post_cost * (VAT/100)     [VAT is 20%]
-    4. CostPriceVAT = cost_price * (VAT/100)
-    5. TotalVATPaid = PostCostVAT + CostPriceVAT
-    6. IncomeAfterFees = SellPriceMinusFee - post_cost
-    7. ExtraVATDue = SellPriceVAT - TotalVATPaid
-    8. Profit = IncomeAfterFees - (cost_price + CostPriceVAT + ExtraVATDue + extra_cost)
-    9. Profit Percentage = Profit / sell_price
+    Calculate profit percentage using the logic:
+      1. SellPriceMinusFee = sell_price * (1 - (platform_fee/100))
+      2. SellPriceVAT = (sell_price / 120) * 20
+      3. PostCostVAT = post_cost * (VAT_VALUE/100)
+      4. CostPriceVAT = cost_price * (VAT_VALUE/100)
+      5. TotalVATPaid = PostCostVAT + CostPriceVAT
+      6. IncomeAfterFees = SellPriceMinusFee - post_cost
+      7. ExtraVATDue = SellPriceVAT - TotalVATPaid
+      8. Profit = IncomeAfterFees - (cost_price + CostPriceVAT + ExtraVATDue + extra_cost)
+      9. Profit Percentage = Profit / sell_price
     """
     sell_price_minus_fee = sell_price * (1 - (platform_fee / 100))
     sell_price_vat = (sell_price / 120) * 20
@@ -34,11 +33,12 @@ def find_selling_price(cost_price, post_cost, platform_fee, target_profit_pct, e
     """
     Iteratively determine the selling price so that the computed profit percentage
     equals the target profit percentage.
-    
-    target_profit_pct is provided as a percentage (e.g., 16) and compared as a decimal (0.16).
+    target_profit_pct is provided as a percentage (e.g., 16) and is compared as a decimal (0.16).
     """
     target_profit_decimal = target_profit_pct / 100.0
-    initial_sell_price = (cost_price + post_cost + extra_cost) * (1 + (platform_fee / 100) + (VAT_VALUE / 100) + (target_profit_pct / 100))
+    initial_sell_price = (cost_price + post_cost + extra_cost) * (
+        1 + (platform_fee / 100) + (VAT_VALUE / 100) + (target_profit_pct / 100)
+    )
     sell_price = initial_sell_price
     tolerance = 0.0001
     max_iterations = 10000
@@ -57,24 +57,6 @@ def find_selling_price(cost_price, post_cost, platform_fee, target_profit_pct, e
 def load_config(config_file="config.json"):
     """
     Loads a JSON configuration file that contains both platform settings and postage options.
-    
-    Expected JSON format:
-    {
-      "platforms": {
-          "Platform A": { "fee": 15, "target_profit_pct": 16, "extra_cost": 0 },
-          "Platform B": { "fee": 10, "target_profit_pct": 18, "extra_cost": 0.20 }
-      },
-      "postage_options": {
-          "Large Letter untracked": 1.37,
-          "Parcel 48 Tracked": 3.47,
-          "DPD GB": 8.07,
-          "DPD NI": 5.05,
-          "DPD IE": 5.77,
-          "Evri 0-2kg": 5.33,
-          "Evri 2-5kg": 5.98,
-          "Evri 2 - 15kg": 6.09
-      }
-    }
     """
     try:
         with open(config_file, "r") as f:
@@ -86,102 +68,125 @@ def load_config(config_file="config.json"):
         st.error(f"Error loading configuration file: {e}")
         return {}, {}
 
-def format_postage_options(postage_options):
+def format_postage_options(postage_options, cost_price):
     """
-    Return a dictionary mapping formatted postage option labels to their cost.
-    Example: "Large Letter untracked (Cost: £1.37)" -> 1.37
+    Returns a dictionary mapping formatted postage option labels to their cost,
+    filtering out options where cost_price exceeds the option's max_value.
+    Also returns a list of messages for options that were removed.
     """
-    formatted = {f"{key} (Cost: £{postage_options[key]:.2f})": postage_options[key]
-                 for key in postage_options}
-    return formatted
+    available_options = {}
+    removed_options = []
+    for key, data in postage_options.items():
+        cost = data.get("cost")
+        max_value = data.get("max_value")
+        if max_value is not None and cost_price > max_value:
+            removed_options.append(f"{key} (max cost: £{max_value:.2f}) not available")
+        else:
+            label = f"{key} (Cost: £{cost:.2f})"
+            available_options[label] = cost
+    return available_options, removed_options
 
 # --- Streamlit UI ---
-# Create an empty container at the top for results in single-item mode
-result_container = st.empty()
 
-st.title("Pet Connection Selling Price Calculator")
+# Move the "Calculate for multiple quantities?" checkbox above the cost price field.
+multiple_mode = st.checkbox("Calculate for multiple quantities?", value=False)
 
+# Center the title.
+st.markdown("<h1 style='text-align:center;'>Pet Connection Selling Price Calculator</h1>", unsafe_allow_html=True)
 st.markdown("""
+<div style='text-align:center; font-size:18px;'>
 This tool calculates the required selling price to achieve a desired profit percentage for each platform.
 Platform-specific settings and postage options are loaded from a configuration file.
 When calculating for multiples, you can assign a postage choice for each quantity option.
-""")
+Note: Some postage providers become unavailable if the cost price is too high.
+</div>
+""", unsafe_allow_html=True)
 
-# Common input parameters
-cost_price = st.number_input("Enter the Cost Price (£):", min_value=0.0, value=8.92, step=0.01)
+# Common input parameter (default cost price now 0)
+cost_price = st.number_input("Enter the Cost Price (£):", min_value=0.0, value=0.0, step=0.01)
 
-# VAT is now hardcoded as 20% (not user input)
-
-# Load configuration
+# Load configuration.
 platforms, postage_options = load_config()
-formatted_postage = format_postage_options(postage_options) if postage_options else {}
+formatted_postage, removed_options = format_postage_options(postage_options, cost_price)
 
-# --- Single Item Mode Postage Selection ---
-if formatted_postage:
-    selected_postage_label = st.selectbox("Select the Postage Type (for single item):", list(formatted_postage.keys()))
-    single_post_cost = formatted_postage.get(selected_postage_label, 0)
-    st.write(f"Selected Postage Cost: £{single_post_cost:.2f}")
+# Display message if any options were removed.
+if removed_options:
+    st.markdown("<div style='color:red; text-align:center; font-size:16px;'>"
+                "The following postage options are not available for the entered cost price: "
+                + ", ".join(removed_options)
+                + "</div>", unsafe_allow_html=True)
+
+# --- Conditional Postage Selection ---
+if not multiple_mode:
+    if formatted_postage:
+        selected_postage_label = st.selectbox("Select the Postage Type (for single item):", list(formatted_postage.keys()))
+        single_post_cost = formatted_postage.get(selected_postage_label, 0)
+        st.write(f"Selected Postage Cost: £{single_post_cost:.2f}")
+    else:
+        st.error("No available postage options for the entered cost price.")
+        single_post_cost = 0.0
 else:
-    st.error("No postage options found in configuration.")
-    single_post_cost = 0.0
+    single_post_cost = 0.0  # Not used in multiple mode
 
-# Option for multiple quantities
-multiple_mode = st.checkbox("Calculate for multiple quantities?", value=False)
-
+# --- Multiple Quantities Mode Postage Selection ---
 if multiple_mode:
     max_quantity = st.number_input("Enter maximum quantity:", min_value=2, value=3, step=1)
     st.markdown("### Select a Postage Option for Each Quantity Option")
     postage_by_quantity = {}
+    options_list = list(formatted_postage.keys())
+    default_index = 1 if len(options_list) > 1 else 0  # Default to second option if available.
     for q in range(1, int(max_quantity) + 1):
         key_label = f"Select Postage Option for quantity {q}:"
-        selected_label = st.selectbox(key_label, list(formatted_postage.keys()), key=f"postage_q_{q}")
+        selected_label = st.selectbox(key_label, options_list, key=f"postage_q_{q}", index=default_index)
         postage_by_quantity[q] = formatted_postage.get(selected_label, 0)
+
+# Create an empty container for single-item results.
+result_container = st.empty()
 
 # --- Calculate and Display Results ---
 if platforms:
     if not multiple_mode:
-        # Build a simple HTML block for each platform's result
+        # Build a simple HTML block for each platform's result.
         results_output = ""
         for platform_name, params in platforms.items():
             fee = params.get("fee", 0)
             target_profit_pct_platform = params.get("target_profit_pct", 0)
             extra_cost = params.get("extra_cost", 0)
             unit_sell_price, unit_profit = find_selling_price(cost_price, single_post_cost, fee, target_profit_pct_platform, extra_cost)
-            # Format each line with centered, larger text and bold values.
             results_output += f"""<div style="text-align:center; font-size:24px;">
-<strong>{platform_name}:</strong> Selling Price = <strong>£{unit_sell_price:.2f}</strong>, Profit = <strong>{unit_profit:.2%}</strong>
+<strong>{platform_name}:</strong> Selling Price = <strong style='color:green;'>&pound;{unit_sell_price:.2f}</strong>, Profit = <strong style='color:green;'>{unit_profit:.2%}</strong>
 </div><br>"""
-        # Display the results at the top using unsafe_allow_html.
         result_container.markdown(results_output, unsafe_allow_html=True)
     else:
-        # Multiple mode: build and display a results table for each platform.
+        # In multiple mode, output a table for each platform.
         for platform_name, params in platforms.items():
             fee = params.get("fee", 0)
             target_profit_pct_platform = params.get("target_profit_pct", 0)
             extra_cost = params.get("extra_cost", 0)
             st.markdown(f"**{platform_name}:**")
             multiple_results = []
-            # Also compute baseline single-item unit price for discount calculation.
-            unit_sell_price, _ = find_selling_price(cost_price, single_post_cost, fee, target_profit_pct_platform, extra_cost)
+            # Compute baseline unit selling price using the postage option selected for quantity 1.
+            baseline_unit_sell_price, _ = find_selling_price(cost_price, postage_by_quantity.get(1, 0), fee, target_profit_pct_platform, extra_cost)
             for q in range(1, int(max_quantity) + 1):
                 total_cost = cost_price * q
-                # For each quantity, use the postage option selected for that quantity.
-                post_cost_q = postage_by_quantity.get(q, single_post_cost)
+                post_cost_q = postage_by_quantity.get(q, 0)
                 sell_price_q, profit_q = find_selling_price(total_cost, post_cost_q, fee, target_profit_pct_platform, extra_cost)
-                baseline_total = unit_sell_price * q
+                baseline_total = baseline_unit_sell_price * q
                 discount_amount = baseline_total - sell_price_q
                 discount_pct = (discount_amount / baseline_total * 100) if baseline_total > 0 else 0
                 multiple_results.append({
                     "Quantity": q,
-                    "Selling Price": f"£{sell_price_q:.2f}",
                     "Profit": f"{profit_q:.2%}",
                     "Baseline Total": f"£{baseline_total:.2f}",
                     "Discount Amount": f"£{discount_amount:.2f}",
+                    "Selling Price": f"£{sell_price_q:.2f}",
                     "Discount %": f"{discount_pct:.2f}%"
                 })
-            df_results = pd.DataFrame(multiple_results)
-            # Convert to HTML table without indices, and wrap it in a centered div with larger text.
-            table_html = f'<div style="text-align:center; font-size:18px;">{df_results.to_html(index=False)}</div>'
+            order = ["Quantity", "Profit", "Baseline Total", "Discount Amount", "Selling Price", "Discount %"]
+            df_results = pd.DataFrame(multiple_results)[order]
+            # Style the last two columns with bold green text using applymap, then convert to HTML without index.
+            styled_df = df_results.style.applymap(lambda v: "color: green; font-weight: bold;", subset=["Selling Price", "Discount %"])
+            table_html = f'<div style="text-align:center; font-size:18px;">{styled_df.to_html(index=False)}</div>'
             st.markdown(table_html, unsafe_allow_html=True)
 else:
     st.error("Platform configuration is missing. Please check your config.json file.")
