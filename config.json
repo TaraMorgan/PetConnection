@@ -12,15 +12,16 @@
         }
     },
     "postage_options": {
-        "Large Letter untracked": 1.37,
-        "Parcel 48 Tracked": 3.47,
-        "DPD GB": 8.07,
-        "DPD NI": 5.05,
-        "DPD IE": 5.77,
-        "Evri 0-2kg": 5.33,
-        "Evri 2-5kg": 5.98,
-        "Evri 2 - 15kg": 6.09
+      "Large Letter untracked": { "cost": 1.37, "max_value": 21.00 },
+      "Parcel 48 Tracked": { "cost": 3.47, "max_value": 31.60 },
+      "DPD GB": { "cost": 8.07, "max_value": 62.20 },
+      "DPD NI": { "cost": 5.05, "max_value": 62.20 },
+      "DPD IE": { "cost": 5.77, "max_value": 62.20 },
+      "Evri 0-2kg": { "cost": 5.33, "max_value": 30.90 },
+      "Evri 2-5kg": { "cost": 5.98, "max_value": 30.90 },
+      "Evri 2 - 15kg": { "cost": 6.09, "max_value": 31.20 }
     }
 }
+  
   
   
