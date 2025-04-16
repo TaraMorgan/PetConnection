@@ -92,7 +92,7 @@ def format_postage_options(postage_options, cost_price):
 multiple_mode = st.checkbox("Calculate for multiple quantities?", value=False)
 
 # Center the title.
-st.markdown("<h1 style='text-align:center;'>Pet Connection Selling Price Calculator</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center;'>Pet Connection Repricer</h1>", unsafe_allow_html=True)
 st.markdown("""
 <div style='text-align:center; font-size:18px;'>
 This tool calculates the required selling price to achieve a desired profit percentage for each platform.
@@ -111,10 +111,10 @@ formatted_postage, removed_options = format_postage_options(postage_options, cos
 
 # Display message if any options were removed.
 if removed_options:
-    st.markdown("<div style='color:red; text-align:center; font-size:16px;'>"
-                "The following postage options are not available for the entered cost price: "
-                + ", ".join(removed_options)
-                + "</div>", unsafe_allow_html=True)
+    removed_str = ", ".join(removed_options)
+    st.markdown(f"<div style='color:red; text-align:center; font-size:16px;'>"
+                f"The following postage options are not available for the entered cost price: {removed_str}"
+                f"</div>", unsafe_allow_html=True)
 
 # --- Conditional Postage Selection ---
 if not multiple_mode:
@@ -134,7 +134,7 @@ if multiple_mode:
     st.markdown("### Select a Postage Option for Each Quantity Option")
     postage_by_quantity = {}
     options_list = list(formatted_postage.keys())
-    default_index = 1 if len(options_list) > 1 else 0  # Default to second option if available.
+    default_index = 1 if len(options_list) > 1 else 0  # default to second option if available.
     for q in range(1, int(max_quantity) + 1):
         key_label = f"Select Postage Option for quantity {q}:"
         selected_label = st.selectbox(key_label, options_list, key=f"postage_q_{q}", index=default_index)
@@ -168,7 +168,7 @@ if platforms:
             # Compute baseline unit selling price using the postage option selected for quantity 1.
             baseline_unit_sell_price, _ = find_selling_price(cost_price, postage_by_quantity.get(1, 0), fee, target_profit_pct_platform, extra_cost)
             for q in range(1, int(max_quantity) + 1):
-                total_cost = cost_price * q
+                total_cost = cost_price * q  # Total cost for q items.
                 post_cost_q = postage_by_quantity.get(q, 0)
                 sell_price_q, profit_q = find_selling_price(total_cost, post_cost_q, fee, target_profit_pct_platform, extra_cost)
                 baseline_total = baseline_unit_sell_price * q
@@ -182,10 +182,12 @@ if platforms:
                     "Selling Price": f"£{sell_price_q:.2f}",
                     "Discount %": f"{discount_pct:.2f}%"
                 })
+            # Reorder columns so that "Selling Price" is the second last column.
             order = ["Quantity", "Profit", "Baseline Total", "Discount Amount", "Selling Price", "Discount %"]
             df_results = pd.DataFrame(multiple_results)[order]
-            # Style the last two columns with bold green text using applymap, then convert to HTML without index.
+            # Style the last two columns ("Selling Price" and "Discount %") with bold green text.
             styled_df = df_results.style.applymap(lambda v: "color: green; font-weight: bold;", subset=["Selling Price", "Discount %"])
+            # Convert to HTML without row index.
             table_html = f'<div style="text-align:center; font-size:18px;">{styled_df.to_html(index=False)}</div>'
             st.markdown(table_html, unsafe_allow_html=True)
 else:
