@@ -185,10 +185,23 @@ if platforms:
             # Reorder columns so that "Selling Price" is the second last column.
             order = ["Quantity", "Profit", "Baseline Total", "Discount Amount", "Selling Price", "Discount %"]
             df_results = pd.DataFrame(multiple_results)[order]
+            raw_table = df_results.to_html(index=False)
+            table_html = f"""
+            <div style="text-align:center; font-size:18px;">
+            <style>
+                table {{ margin: 0 auto; }}
+                /* target the Selling Price (5th) and Discount % (6th) columns: */
+                table td:nth-child(5), table th:nth-child(5),
+                table td:nth-child(6), table th:nth-child(6) {{
+                color: green;
+                font-weight: bold;
+                }}
+            </style>
+            {raw_table}
+            </div>
+            """
+            st.markdown(table_html, unsafe_allow_html=True)
             # Style the last two columns ("Selling Price" and "Discount %") with bold green text.
             styled_df = df_results.style.applymap(lambda v: "color: green; font-weight: bold;", subset=["Selling Price", "Discount %"])
-            # Convert to HTML without row index.
-            table_html = f'<div style="text-align:center; font-size:18px;">{styled_df.to_html(index=False)}</div>'
-            st.markdown(table_html, unsafe_allow_html=True)
 else:
     st.error("Platform configuration is missing. Please check your config.json file.")
