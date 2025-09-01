@@ -5,6 +5,7 @@ import pandas as pd
 # Hardcode VAT as 20%
 VAT_VALUE = 20
 
+
 def compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, extra_cost=0):
     """
     Calculate profit percentage using the logic:
@@ -31,6 +32,7 @@ def compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, e
     profit_percentage = profit / sell_price
     return profit_percentage
 
+
 def find_selling_price(cost_price, post_cost, platform_fee, target_profit_pct, extra_cost=0):
     """
     Iteratively determine the selling price so that the computed profit percentage
@@ -46,7 +48,9 @@ def find_selling_price(cost_price, post_cost, platform_fee, target_profit_pct, e
     max_iterations = 10000
 
     for _ in range(max_iterations):
-        current_profit_pct = compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, extra_cost)
+        current_profit_pct = compute_profit_percentage(
+            sell_price, post_cost, cost_price, platform_fee, extra_cost
+        )
         diff = current_profit_pct - target_profit_decimal
         if abs(diff) < tolerance:
             break
@@ -57,9 +61,13 @@ def find_selling_price(cost_price, post_cost, platform_fee, target_profit_pct, e
             if sell_price < 0:
                 sell_price = 0.0
                 break
-    # Round to 2dp as you'd actually price it, then recompute profit to display
+
+    # Round to 2dp as you'd actually list it, then recompute profit for display
     sell_price = round(sell_price + 1e-9, 2)
-    return sell_price, compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, extra_cost)
+    return sell_price, compute_profit_percentage(
+        sell_price, post_cost, cost_price, platform_fee, extra_cost
+    )
+
 
 @st.cache_data
 def load_config(config_file="config.json"):
@@ -72,6 +80,7 @@ def load_config(config_file="config.json"):
     platforms = config.get("platforms", {})
     postage_options = config.get("postage_options", {})
     return platforms, postage_options
+
 
 def format_postage_options(postage_options, cost_price):
     """
@@ -91,38 +100,53 @@ def format_postage_options(postage_options, cost_price):
             available_options[label] = cost
     return available_options, removed_options
 
+
 # --- Streamlit UI ---
 
 # Center the title.
 st.markdown("<h1 style='text-align:center;'>Pet Connection Repricer</h1>", unsafe_allow_html=True)
-st.markdown("""
+st.markdown(
+    """
 <div style='text-align:center; font-size:18px;'>
 This tool calculates the required selling price to achieve a desired profit percentage for each platform.
 Platform-specific settings and postage options are loaded from a configuration file.
 When calculating for multiples, you can assign a postage choice for each quantity option.
 Note: Some postage providers become unavailable if the cost price is too high.
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-# Load configuration (cached)
+# Load configuration (cached).
 platforms, postage_options = load_config()
 
 # --------- FORM: debounce inputs so typing doesn't rerun heavy code ----------
 with st.form("repricer_inputs"):
-    multiple_mode = st.checkbox("Calculate for multiple quantities?", value=False, key="multiple_mode")
-
-    # Common input parameter (default cost price now 0)
-    cost_price = st.number_input(
-        "Enter the Cost Price (£):",
-        min_value=0.0,
-        value=0.0,
-        step=0.01,
-        format="%.2f",
-        key="cost_price_input"
+    multiple_mode = st.checkbox(
+        "Calculate for multiple quantities?", value=False, key="multiple_mode"
     )
 
-    # Build postage options based on current cost price
-    formatted_postage, removed_options = format_postage_options(postage_options, cost_price)
+    # Robust decimal input for cost price: free-typing string + validate on submit
+    if "cost_price_text" not in st.session_state:
+        st.session_state.cost_price_text = "0.00"
+    cost_price_text = st.text_input(
+        "Enter the Cost Price (£):",
+        value=st.session_state.cost_price_text,
+        key="cost_price_input_text",
+        help="Type numbers freely; comma or dot for decimals, up to 2 decimals.",
+    )
+    st.session_state.cost_price_text = cost_price_text
+
+    # Best-effort parse for live UI (non-blocking during typing)
+    try:
+        _preview_cost = float(cost_price_text.replace(",", "."))
+        if _preview_cost < 0:
+            _preview_cost = 0.0
+    except Exception:
+        _preview_cost = 0.0
+
+    # Build postage options based on the preview value
+    formatted_postage, removed_options = format_postage_options(postage_options, _preview_cost)
 
     # Display message if any options were removed.
     if removed_options:
@@ -140,7 +164,7 @@ with st.form("repricer_inputs"):
             selected_postage_label = st.selectbox(
                 "Select the Postage Type (for single item):",
                 list(formatted_postage.keys()),
-                key="single_postage_select"
+                key="single_postage_select",
             )
             single_post_cost = formatted_postage.get(selected_postage_label, 0.0)
             st.write(f"Selected Postage Cost: £{single_post_cost:.2f}")
@@ -152,13 +176,11 @@ with st.form("repricer_inputs"):
     else:
         # --- Multiple Quantities Mode Postage Selection ---
         if not formatted_postage:
-            st.error("No available postage options for the entered cost price. Adjust cost price or config.")
+            st.error(
+                "No available postage options for the entered cost price. Adjust cost price or config."
+            )
         max_quantity = st.number_input(
-            "Enter maximum quantity:",
-            min_value=2,
-            value=3,
-            step=1,
-            key="max_quantity_input"
+            "Enter maximum quantity:", min_value=2, value=3, step=1, key="max_quantity_input"
         )
         st.markdown("### Select a Postage Option for Each Quantity Option")
         postage_by_quantity = {}
@@ -170,7 +192,7 @@ with st.form("repricer_inputs"):
                 key_label,
                 options_list if options_list else ["(no options)"],
                 key=f"postage_q_{q}",
-                index=default_index if options_list else 0
+                index=default_index if options_list else 0,
             )
             postage_by_quantity[q] = formatted_postage.get(selected_label, 0.0)
 
@@ -181,6 +203,15 @@ result_container = st.empty()
 
 # --- Calculate and Display Results (only after submit) ---
 if submitted:
+    # Parse and validate cost price firmly now
+    try:
+        cost_price = float(st.session_state.cost_price_text.replace(",", "."))
+        if cost_price < 0:
+            raise ValueError("Cost price must be non-negative.")
+    except Exception:
+        st.error("Please enter a valid cost price (e.g., 12.34).")
+        st.stop()
+
     if not platforms:
         st.error("Platform configuration is missing. Please check your config.json file.")
     else:
@@ -200,7 +231,8 @@ if submitted:
             result_container.markdown(results_output, unsafe_allow_html=True)
         else:
             if not formatted_postage:
-                st.stop()  # prevent building selectboxes when none exist
+                st.stop()  # prevent building tables when none exist
+
             # In multiple mode, output a table for each platform.
             for platform_name, params in platforms.items():
                 fee = params.get("fee", 0.0)
@@ -221,14 +253,17 @@ if submitted:
                     baseline_total = baseline_unit_sell_price * q
                     discount_amount = baseline_total - sell_price_q
                     discount_pct = (discount_amount / baseline_total * 100) if baseline_total > 0 else 0
-                    multiple_results.append({
-                        "Quantity": q,
-                        "Profit": f"{profit_q:.2%}",
-                        "Baseline Total": f"£{baseline_total:.2f}",
-                        "Discount Amount": f"£{discount_amount:.2f}",
-                        "Selling Price": f"£{sell_price_q:.2f}",
-                        "Discount %": f"{discount_pct:.2f}%"
-                    })
+                    multiple_results.append(
+                        {
+                            "Quantity": q,
+                            "Profit": f"{profit_q:.2%}",
+                            "Baseline Total": f"£{baseline_total:.2f}",
+                            "Discount Amount": f"£{discount_amount:.2f}",
+                            "Selling Price": f"£{sell_price_q:.2f}",
+                            "Discount %": f"{discount_pct:.2f}%",
+                        }
+                    )
+                # Reorder columns so that "Selling Price" is the second last column.
                 order = ["Quantity", "Profit", "Baseline Total", "Discount Amount", "Selling Price", "Discount %"]
                 df_results = pd.DataFrame(multiple_results)[order]
                 raw_table = df_results.to_html(index=False)
