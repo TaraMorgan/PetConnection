@@ -18,6 +18,8 @@ def compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, e
       8. Profit = IncomeAfterFees - (cost_price + CostPriceVAT + ExtraVATDue + extra_cost)
       9. Profit Percentage = Profit / sell_price
     """
+    if sell_price == 0:
+        return 0.0
     sell_price_minus_fee = sell_price * (1 - (platform_fee / 100))
     sell_price_vat = (sell_price / 120) * 20
     post_cost_vat = post_cost * (VAT_VALUE / 100)
@@ -39,11 +41,11 @@ def find_selling_price(cost_price, post_cost, platform_fee, target_profit_pct, e
     initial_sell_price = (cost_price + post_cost + extra_cost) * (
         1 + (platform_fee / 100) + (VAT_VALUE / 100) + (target_profit_pct / 100)
     )
-    sell_price = initial_sell_price
+    sell_price = max(0.0, initial_sell_price)
     tolerance = 0.0001
     max_iterations = 10000
 
-    for i in range(max_iterations):
+    for _ in range(max_iterations):
         current_profit_pct = compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, extra_cost)
         diff = current_profit_pct - target_profit_decimal
         if abs(diff) < tolerance:
@@ -52,21 +54,24 @@ def find_selling_price(cost_price, post_cost, platform_fee, target_profit_pct, e
             sell_price += 0.01
         else:
             sell_price -= 0.01
+            if sell_price < 0:
+                sell_price = 0.0
+                break
+    # Round to 2dp as you'd actually price it, then recompute profit to display
+    sell_price = round(sell_price + 1e-9, 2)
     return sell_price, compute_profit_percentage(sell_price, post_cost, cost_price, platform_fee, extra_cost)
 
+@st.cache_data
 def load_config(config_file="config.json"):
     """
     Loads a JSON configuration file that contains both platform settings and postage options.
+    Cached to avoid re-reading on every rerun.
     """
-    try:
-        with open(config_file, "r") as f:
-            config = json.load(f)
-        platforms = config.get("platforms", {})
-        postage_options = config.get("postage_options", {})
-        return platforms, postage_options
-    except Exception as e:
-        st.error(f"Error loading configuration file: {e}")
-        return {}, {}
+    with open(config_file, "r") as f:
+        config = json.load(f)
+    platforms = config.get("platforms", {})
+    postage_options = config.get("postage_options", {})
+    return platforms, postage_options
 
 def format_postage_options(postage_options, cost_price):
     """
@@ -88,9 +93,6 @@ def format_postage_options(postage_options, cost_price):
 
 # --- Streamlit UI ---
 
-# Move the "Calculate for multiple quantities?" checkbox above the cost price field.
-multiple_mode = st.checkbox("Calculate for multiple quantities?", value=False)
-
 # Center the title.
 st.markdown("<h1 style='text-align:center;'>Pet Connection Repricer</h1>", unsafe_allow_html=True)
 st.markdown("""
@@ -102,106 +104,146 @@ Note: Some postage providers become unavailable if the cost price is too high.
 </div>
 """, unsafe_allow_html=True)
 
-# Common input parameter (default cost price now 0)
-cost_price = st.number_input("Enter the Cost Price (£):", min_value=0.0, value=0.0, step=0.01)
-
-# Load configuration.
+# Load configuration (cached)
 platforms, postage_options = load_config()
-formatted_postage, removed_options = format_postage_options(postage_options, cost_price)
 
-# Display message if any options were removed.
-if removed_options:
-    removed_str = ", ".join(removed_options)
-    st.markdown(f"<div style='color:red; text-align:center; font-size:16px;'>"
-                f"The following postage options are not available for the entered cost price: {removed_str}"
-                f"</div>", unsafe_allow_html=True)
+# --------- FORM: debounce inputs so typing doesn't rerun heavy code ----------
+with st.form("repricer_inputs"):
+    multiple_mode = st.checkbox("Calculate for multiple quantities?", value=False, key="multiple_mode")
 
-# --- Conditional Postage Selection ---
-if not multiple_mode:
-    if formatted_postage:
-        selected_postage_label = st.selectbox("Select the Postage Type (for single item):", list(formatted_postage.keys()))
-        single_post_cost = formatted_postage.get(selected_postage_label, 0)
-        st.write(f"Selected Postage Cost: £{single_post_cost:.2f}")
+    # Common input parameter (default cost price now 0)
+    cost_price = st.number_input(
+        "Enter the Cost Price (£):",
+        min_value=0.0,
+        value=0.0,
+        step=0.01,
+        format="%.2f",
+        key="cost_price_input"
+    )
+
+    # Build postage options based on current cost price
+    formatted_postage, removed_options = format_postage_options(postage_options, cost_price)
+
+    # Display message if any options were removed.
+    if removed_options:
+        removed_str = ", ".join(removed_options)
+        st.markdown(
+            f"<div style='color:red; text-align:center; font-size:16px;'>"
+            f"The following postage options are not available for the entered cost price: {removed_str}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    # --- Conditional Postage Selection ---
+    if not multiple_mode:
+        if formatted_postage:
+            selected_postage_label = st.selectbox(
+                "Select the Postage Type (for single item):",
+                list(formatted_postage.keys()),
+                key="single_postage_select"
+            )
+            single_post_cost = formatted_postage.get(selected_postage_label, 0.0)
+            st.write(f"Selected Postage Cost: £{single_post_cost:.2f}")
+        else:
+            st.error("No available postage options for the entered cost price.")
+            single_post_cost = 0.0
+        max_quantity = None  # not used
+        postage_by_quantity = None
     else:
-        st.error("No available postage options for the entered cost price.")
-        single_post_cost = 0.0
-else:
-    single_post_cost = 0.0  # Not used in multiple mode
+        # --- Multiple Quantities Mode Postage Selection ---
+        if not formatted_postage:
+            st.error("No available postage options for the entered cost price. Adjust cost price or config.")
+        max_quantity = st.number_input(
+            "Enter maximum quantity:",
+            min_value=2,
+            value=3,
+            step=1,
+            key="max_quantity_input"
+        )
+        st.markdown("### Select a Postage Option for Each Quantity Option")
+        postage_by_quantity = {}
+        options_list = list(formatted_postage.keys())
+        default_index = 1 if len(options_list) > 1 else 0  # default to second option if available.
+        for q in range(1, int(max_quantity) + 1):
+            key_label = f"Select Postage Option for quantity {q}:"
+            selected_label = st.selectbox(
+                key_label,
+                options_list if options_list else ["(no options)"],
+                key=f"postage_q_{q}",
+                index=default_index if options_list else 0
+            )
+            postage_by_quantity[q] = formatted_postage.get(selected_label, 0.0)
 
-# --- Multiple Quantities Mode Postage Selection ---
-if multiple_mode:
-    max_quantity = st.number_input("Enter maximum quantity:", min_value=2, value=3, step=1)
-    st.markdown("### Select a Postage Option for Each Quantity Option")
-    postage_by_quantity = {}
-    options_list = list(formatted_postage.keys())
-    default_index = 1 if len(options_list) > 1 else 0  # default to second option if available.
-    for q in range(1, int(max_quantity) + 1):
-        key_label = f"Select Postage Option for quantity {q}:"
-        selected_label = st.selectbox(key_label, options_list, key=f"postage_q_{q}", index=default_index)
-        postage_by_quantity[q] = formatted_postage.get(selected_label, 0)
+    submitted = st.form_submit_button("Calculate")
 
-# Create an empty container for single-item results.
+# Create an empty container for results (outside the form)
 result_container = st.empty()
 
-# --- Calculate and Display Results ---
-if platforms:
-    if not multiple_mode:
-        # Build a simple HTML block for each platform's result.
-        results_output = ""
-        for platform_name, params in platforms.items():
-            fee = params.get("fee", 0)
-            target_profit_pct_platform = params.get("target_profit_pct", 0)
-            extra_cost = params.get("extra_cost", 0)
-            unit_sell_price, unit_profit = find_selling_price(cost_price, single_post_cost, fee, target_profit_pct_platform, extra_cost)
-            results_output += f"""<div style="text-align:center; font-size:24px;">
+# --- Calculate and Display Results (only after submit) ---
+if submitted:
+    if not platforms:
+        st.error("Platform configuration is missing. Please check your config.json file.")
+    else:
+        if not multiple_mode:
+            # Build a simple HTML block for each platform's result.
+            results_output = ""
+            for platform_name, params in platforms.items():
+                fee = params.get("fee", 0.0)
+                target_profit_pct_platform = params.get("target_profit_pct", 0.0)
+                extra_cost = params.get("extra_cost", 0.0)
+                unit_sell_price, unit_profit = find_selling_price(
+                    cost_price, single_post_cost, fee, target_profit_pct_platform, extra_cost
+                )
+                results_output += f"""<div style="text-align:center; font-size:24px;">
 <strong>{platform_name}:</strong> Selling Price = <strong style='color:green;'>&pound;{unit_sell_price:.2f}</strong>, Profit = <strong style='color:green;'>{unit_profit:.2%}</strong>
 </div><br>"""
-        result_container.markdown(results_output, unsafe_allow_html=True)
-    else:
-        # In multiple mode, output a table for each platform.
-        for platform_name, params in platforms.items():
-            fee = params.get("fee", 0)
-            target_profit_pct_platform = params.get("target_profit_pct", 0)
-            extra_cost = params.get("extra_cost", 0)
-            st.markdown(f"**{platform_name}:**")
-            multiple_results = []
-            # Compute baseline unit selling price using the postage option selected for quantity 1.
-            baseline_unit_sell_price, _ = find_selling_price(cost_price, postage_by_quantity.get(1, 0), fee, target_profit_pct_platform, extra_cost)
-            for q in range(1, int(max_quantity) + 1):
-                total_cost = cost_price * q  # Total cost for q items.
-                post_cost_q = postage_by_quantity.get(q, 0)
-                sell_price_q, profit_q = find_selling_price(total_cost, post_cost_q, fee, target_profit_pct_platform, extra_cost)
-                baseline_total = baseline_unit_sell_price * q
-                discount_amount = baseline_total - sell_price_q
-                discount_pct = (discount_amount / baseline_total * 100) if baseline_total > 0 else 0
-                multiple_results.append({
-                    "Quantity": q,
-                    "Profit": f"{profit_q:.2%}",
-                    "Baseline Total": f"£{baseline_total:.2f}",
-                    "Discount Amount": f"£{discount_amount:.2f}",
-                    "Selling Price": f"£{sell_price_q:.2f}",
-                    "Discount %": f"{discount_pct:.2f}%"
-                })
-            # Reorder columns so that "Selling Price" is the second last column.
-            order = ["Quantity", "Profit", "Baseline Total", "Discount Amount", "Selling Price", "Discount %"]
-            df_results = pd.DataFrame(multiple_results)[order]
-            raw_table = df_results.to_html(index=False)
-            table_html = f"""
-            <div style="text-align:center; font-size:18px;">
-            <style>
-                table {{ margin: 0 auto; }}
-                /* target the Selling Price (5th) and Discount % (6th) columns: */
-                table td:nth-child(5), table th:nth-child(5),
-                table td:nth-child(6), table th:nth-child(6) {{
-                color: green;
-                font-weight: bold;
-                }}
-            </style>
-            {raw_table}
-            </div>
-            """
-            st.markdown(table_html, unsafe_allow_html=True)
-            # Style the last two columns ("Selling Price" and "Discount %") with bold green text.
-            styled_df = df_results.style.applymap(lambda v: "color: green; font-weight: bold;", subset=["Selling Price", "Discount %"])
-else:
-    st.error("Platform configuration is missing. Please check your config.json file.")
+            result_container.markdown(results_output, unsafe_allow_html=True)
+        else:
+            if not formatted_postage:
+                st.stop()  # prevent building selectboxes when none exist
+            # In multiple mode, output a table for each platform.
+            for platform_name, params in platforms.items():
+                fee = params.get("fee", 0.0)
+                target_profit_pct_platform = params.get("target_profit_pct", 0.0)
+                extra_cost = params.get("extra_cost", 0.0)
+                st.markdown(f"**{platform_name}:**")
+                multiple_results = []
+                # Compute baseline unit selling price using the postage option selected for quantity 1.
+                baseline_unit_sell_price, _ = find_selling_price(
+                    cost_price, postage_by_quantity.get(1, 0.0), fee, target_profit_pct_platform, extra_cost
+                )
+                for q in range(1, int(max_quantity) + 1):
+                    total_cost = cost_price * q  # Total cost for q items.
+                    post_cost_q = postage_by_quantity.get(q, 0.0)
+                    sell_price_q, profit_q = find_selling_price(
+                        total_cost, post_cost_q, fee, target_profit_pct_platform, extra_cost
+                    )
+                    baseline_total = baseline_unit_sell_price * q
+                    discount_amount = baseline_total - sell_price_q
+                    discount_pct = (discount_amount / baseline_total * 100) if baseline_total > 0 else 0
+                    multiple_results.append({
+                        "Quantity": q,
+                        "Profit": f"{profit_q:.2%}",
+                        "Baseline Total": f"£{baseline_total:.2f}",
+                        "Discount Amount": f"£{discount_amount:.2f}",
+                        "Selling Price": f"£{sell_price_q:.2f}",
+                        "Discount %": f"{discount_pct:.2f}%"
+                    })
+                order = ["Quantity", "Profit", "Baseline Total", "Discount Amount", "Selling Price", "Discount %"]
+                df_results = pd.DataFrame(multiple_results)[order]
+                raw_table = df_results.to_html(index=False)
+                table_html = f"""
+                <div style="text-align:center; font-size:18px;">
+                <style>
+                    table {{ margin: 0 auto; }}
+                    /* target the Selling Price (5th) and Discount % (6th) columns: */
+                    table td:nth-child(5), table th:nth-child(5),
+                    table td:nth-child(6), table th:nth-child(6) {{
+                        color: green;
+                        font-weight: bold;
+                    }}
+                </style>
+                {raw_table}
+                </div>
+                """
+                st.markdown(table_html, unsafe_allow_html=True)
