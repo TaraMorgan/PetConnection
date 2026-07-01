@@ -17,7 +17,7 @@
       "DPD GB": { "cost": 8.76, "max_value": 500 },
       "DPD NI": { "cost": 5.47, "max_value": 500 },
       "DPD IE": { "cost": 6.26, "max_value": 500 },
-      "Royal Mail Heavy": { "cost": 5.33, "max_value": 80.00 }
+      "Royal Mail Heavy": { "cost": 8.65, "max_value": 80.00 }
     }
 }
   
